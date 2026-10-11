@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meridian</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow-first board. Each city is a row: name, large clock, status, and a 24-cell day bar
+   laid out over the source zone's calendar day. The cursor marks the chosen moment on every bar. */
+:root{
+  --font-ui:'Bricolage Grotesque','Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --bg:#E8EDF0; --surface:#F7F9FA; --field:#FFFFFF; --ink:#0E1C25; --muted:#56666F; --line:#CBD5DA;
+  --accent:#0A7A72; --accent-strong:#075F59; --accent-wash:#D3ECE9; --src-wash:#EAF4F3;
+  --night:#AAB8D6; --dusk:#D1D9EA; --day:#FAE9B0; --night-wash:#DCE3F1; --cell-line:rgba(14,28,37,.12);
+  --cursor:#0E1C25; --halo:#F7F9FA; --shadow:rgba(14,28,37,.2);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0A1116; --surface:#121B22; --field:#0D151B; --ink:#E6EEF2; --muted:#8FA1AB; --line:#25333C;
+    --accent:#3CC9BC; --accent-strong:#86E6DC; --accent-wash:#10393A; --src-wash:#0F2A2B;
+    --night:#16234A; --dusk:#26355F; --day:#5E5226; --night-wash:#1A2749; --cell-line:rgba(230,238,242,.1);
+    --cursor:#FFFFFF; --halo:#0A1116; --shadow:rgba(0,0,0,.55);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0A1116; --surface:#121B22; --field:#0D151B; --ink:#E6EEF2; --muted:#8FA1AB; --line:#25333C;
+  --accent:#3CC9BC; --accent-strong:#86E6DC; --accent-wash:#10393A; --src-wash:#0F2A2B;
+  --night:#16234A; --dusk:#26355F; --day:#5E5226; --night-wash:#1A2749; --cell-line:rgba(230,238,242,.1);
+  --cursor:#FFFFFF; --halo:#0A1116; --shadow:rgba(0,0,0,.55);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.45 var(--font-ui);padding-block:20px 56px;padding-inline:16px}
+.app{max-width:1080px;margin-inline:auto;display:flex;flex-direction:column;gap:14px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;color:var(--accent)}
+.brand svg{width:28px;height:28px;flex:none}
+h1{margin:0;font:700 28px/1 var(--font-ui);letter-spacing:-.02em;color:var(--ink);text-wrap:balance}
+.lede{margin:0;color:var(--muted);max-width:62ch}
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--field)}
+.seg button{font:600 13px var(--font-mono);padding:8px 14px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.controls,.add{display:flex;flex-wrap:wrap;gap:12px;padding:14px;align-items:flex-end}
+.f{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1 1 140px}
+.f.grow{flex:2 1 230px}
+.f>span,.f>.lb{font:600 11px/1 var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.in{width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--field);color:var(--ink);font:500 15px var(--font-mono)}
+select.in{font-family:var(--font-ui);font-weight:500}
+.in:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+
+.btn{font:600 13px var(--font-ui);padding:0 14px;min-height:42px;border-radius:6px;border:1px solid var(--line);background:var(--field);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{border-color:var(--accent)}
+.btn.small{min-height:34px;padding:0 10px;font-size:12px}
+.btn.solid{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.icon{width:34px;padding:0}
+.live[aria-pressed="true"]{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-wash)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.live[aria-pressed="true"] .dot{background:var(--accent);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+
+.board{overflow:hidden}
+.rows{list-style:none;margin:0;padding:0}
+.row{display:grid;gap:8px 16px;padding:14px;border-top:1px solid var(--line);align-items:center;
+  grid-template-columns:minmax(0,1fr) auto;
+  grid-template-areas:"info acts" "when state" "strip strip"}
+.row:first-child{border-top:0}
+.row.is-src{background:var(--src-wash)}
+.info{grid-area:info;min-width:0}
+.when{grid-area:when}
+.state{grid-area:state;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.acts{grid-area:acts;display:flex;gap:6px;align-items:center;justify-self:end}
+.strip{grid-area:strip}
+@media (min-width:780px){
+  .row{grid-template-columns:200px 150px minmax(0,1fr) auto;gap:2px 22px;padding:14px 16px;
+    grid-template-areas:"info when strip acts" "state when strip acts"}
+  .info{align-self:end}
+  .state{flex-direction:row;align-items:center;gap:10px;align-self:start;margin-top:6px}
+}
+
+.name{font:600 18px/1.15 var(--font-ui);overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin-top:4px;font:500 12px/1.3 var(--font-mono);color:var(--muted)}
+.tag{border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:11px}
+.clock{display:flex;align-items:baseline;gap:6px}
+.t{font:500 32px/1 var(--font-mono);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.ap{font:500 12px var(--font-mono);color:var(--muted)}
+.dt{display:flex;align-items:center;gap:8px;margin-top:5px;font:400 13px var(--font-ui);color:var(--muted)}
+.rel{font:600 11px var(--font-mono);color:var(--accent-strong);background:var(--accent-wash);padding:1px 6px;border-radius:4px}
+.pill{font:600 11px/1 var(--font-ui);letter-spacing:.06em;text-transform:uppercase;padding:6px 9px;border-radius:999px;white-space:nowrap}
+.st-work{background:var(--accent-wash);color:var(--accent-strong)}
+.st-off{border:1px solid var(--line);color:var(--muted)}
+.st-night{background:var(--night-wash);color:var(--ink)}
+.diff{font:500 12px var(--font-mono);color:var(--muted)}
+.srcmark{font:600 11px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--accent-strong);padding-inline:6px}
+
+.strip{position:relative;padding-block:6px;cursor:ew-resize;touch-action:pan-y;border-radius:6px}
+.cells{display:grid;grid-template-columns:repeat(24,1fr);height:40px;border-radius:5px;overflow:hidden;background:var(--night)}
+.c{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;user-select:none;
+  font:500 clamp(8px,2.3vw,11px)/1 var(--font-mono);color:var(--ink);box-shadow:inset 1px 0 0 var(--cell-line)}
+.c .m{font-size:.72em;opacity:.7;min-height:8px;margin-top:1px}
+.c.night{background:var(--night)} .c.dusk{background:var(--dusk)} .c.day{background:var(--day)}
+.c.work{box-shadow:inset 1px 0 0 var(--cell-line),inset 0 -3px 0 var(--accent)}
+.c.roll .h{font-weight:700;text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:2px}
+.cursor{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--cursor);box-shadow:0 0 0 1px var(--halo);border-radius:1px;pointer-events:none}
+.cursor::before{content:"";position:absolute;top:-1px;left:50%;width:10px;height:10px;margin-left:-5px;border-radius:50%;background:var(--cursor);box-shadow:0 0 0 2px var(--halo)}
+
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;padding:12px 14px;border-top:1px solid var(--line);font:500 12px var(--font-ui);color:var(--muted)}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-3px;margin-right:6px;box-shadow:inset 0 0 0 1px var(--cell-line)}
+.sw.n{background:var(--night)} .sw.d{background:var(--dusk)} .sw.y{background:var(--day)}
+.sw.w{background:var(--day);box-shadow:inset 0 -3px 0 var(--accent)}
+.sw.k{width:2px;background:var(--cursor);margin-inline:6px;border-radius:1px;box-shadow:none}
+
+.addbox{position:relative}
+.results{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 28px var(--shadow);padding:4px}
+.res{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;width:100%;text-align:left;border:0;background:transparent;color:var(--ink);padding:9px 10px;border-radius:6px;cursor:pointer;font:500 14px var(--font-ui)}
+.res:hover,.res.on{background:var(--accent-wash)}
+.res:disabled{cursor:default;color:var(--muted)}
+.res:disabled:hover{background:transparent}
+.rc{grid-column:1;font:400 12px var(--font-ui);color:var(--muted)}
+.ro{grid-column:2;grid-row:1 / span 2;align-self:center;font:500 12px var(--font-mono);color:var(--muted)}
+.none{padding:12px;color:var(--muted);font-size:13px}
+.sumbox{width:100%;min-height:130px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--ink);font:13px/1.5 var(--font-mono)}
+.note{margin:0;font-size:12.5px;color:var(--muted);max-width:70ch}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:8px;font:600 13px var(--font-ui);opacity:0;pointer-events:none;transition:opacity .2s;max-width:calc(100% - 32px);text-align:center}
+.toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){.dot{animation:none!important}.toast{transition:none}}
+</style>
+<style>:root{color-scheme:light}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><ellipse cx="12" cy="12" rx="4" ry="9.5"/><path d="M2.5 12h19"/></svg>
+      <h1>Meridian</h1>
+    </div>
+    <div class="seg" role="group" aria-label="Clock format">
+      <button type="button" id="f12" aria-pressed="true">12h</button>
+      <button type="button" id="f24" aria-pressed="false">24h</button>
+    </div>
+  </header>
+  <p class="lede">Choose a date, time and zone, then read the same moment in every city below. Drag along any day bar to move the time.</p>
+
+  <section class="panel controls" aria-label="Moment to convert">
+    <label class="f"><span>Date</span><input class="in" type="date" id="date"></label>
+    <label class="f"><span>Time</span><input class="in" type="time" id="time"></label>
+    <label class="f grow"><span>In time zone</span><select class="in" id="zone"></select></label>
+    <button type="button" class="btn live" id="live" aria-pressed="true"><span class="dot"></span><span id="liveLabel">Live</span></button>
+  </section>
+
+  <section class="panel board" aria-label="Converted times">
+    <ol class="rows" id="rows"></ol>
+    <div class="legend" aria-label="Legend">
+      <span><i class="sw n"></i>Night</span>
+      <span><i class="sw d"></i>Twilight</span>
+      <span><i class="sw y"></i>Daytime</span>
+      <span><i class="sw w"></i>Working hours, 9 to 18</span>
+      <span><i class="sw k"></i>Chosen moment</span>
+    </div>
+  </section>
+
+  <section class="panel add" aria-label="Add a city">
+    <div class="f grow addbox">
+      <label class="lb" for="q">Add a city</label>
+      <input class="in" id="q" type="search" placeholder="Search city, country or region" autocomplete="off" spellcheck="false">
+      <div class="results" id="results" role="listbox" aria-label="Matching cities" hidden></div>
+    </div>
+    <button type="button" class="btn solid" id="copy">Copy all times</button>
+    <textarea class="sumbox" id="sum" readonly hidden aria-label="Summary of times"></textarea>
+  </section>
+
+  <p class="note">Conversions use the time zone rules built into your browser, so daylight saving is applied for the date you pick. The day bars span the calendar day of the source zone, and each cell shows the local hour in that city.</p>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+'use strict';
+const $=(s)=>document.querySelector(s);
+const p2=(n)=>(n<10?'0':'')+n;
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const esc=(s)=>String(s).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm=(s)=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+
+/*H*/
+const fmtCache=new Map();
+function dtf(tz){
+  let f=fmtCache.get(tz);
+  if(!f){
+    f=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',weekday:'short'});
+    fmtCache.set(tz,f);
+  }
+  return f;
+}
+function parts(ms,tz){
+  const o={};
+  for(const p of dtf(tz).formatToParts(ms)) o[p.type]=p.value;
+  return {y:+o.year,mo:+o.month,d:+o.day,h:(+o.hour)%24,mi:+o.minute,s:+o.second,wd:o.weekday};
+}
+function offMin(ms,tz){
+  const p=parts(ms,tz);
+  return Math.round((Date.UTC(p.y,p.mo-1,p.d,p.h,p.mi,p.s)-Math.floor(ms/1000)*1000)/60000);
+}
+function zoned(y,mo,d,h,mi,tz){
+  const g=Date.UTC(y,mo-1,d,h,mi);
+  const o1=offMin(g,tz);
+  let t=g-o1*60000;
+  const o2=offMin(t,tz);
+  if(o2!==o1) t=g-o2*60000;
+  return t;
+}
+/*H-END*/
+
+function valid(tz){ try{ dtf(tz); return true; }catch(e){ return false; } }
+function isDst(tz,ms){
+  const y=parts(ms,tz).y;
+  const a=offMin(Date.UTC(y,0,1),tz), b=offMin(Date.UTC(y,6,1),tz);
+  return a!==b && offMin(ms,tz)===Math.max(a,b);
+}
+function fmtOff(m){
+  if(m===0) return 'UTC';
+  const a=Math.abs(m), h=Math.floor(a/60), mm=a%60;
+  return 'UTC'+(m<0?'−':'+')+h+(mm?':'+p2(mm):'');
+}
+function hm(a){ const h=Math.floor(a/60), m=a%60; return (h?h+'h':'')+(h&&m?' ':'')+(m?m+'m':''); }
+
+const CATALOG=[
+ ['Mumbai','Asia/Kolkata','India'],['New Delhi','Asia/Kolkata','India'],['Bengaluru','Asia/Kolkata','India'],['Kolkata','Asia/Kolkata','India'],['Chennai','Asia/Kolkata','India'],['Hyderabad','Asia/Kolkata','India'],
+ ['Karachi','Asia/Karachi','Pakistan'],['Dhaka','Asia/Dhaka','Bangladesh'],['Kathmandu','Asia/Kathmandu','Nepal'],['Colombo','Asia/Colombo','Sri Lanka'],['Kabul','Asia/Kabul','Afghanistan'],['Tashkent','Asia/Tashkent','Uzbekistan'],['Almaty','Asia/Almaty','Kazakhstan'],
+ ['Dubai','Asia/Dubai','United Arab Emirates'],['Doha','Asia/Qatar','Qatar'],['Riyadh','Asia/Riyadh','Saudi Arabia'],['Tehran','Asia/Tehran','Iran'],['Baghdad','Asia/Baghdad','Iraq'],['Jerusalem','Asia/Jerusalem','Israel'],['Istanbul','Europe/Istanbul','Türkiye'],
+ ['Bangkok','Asia/Bangkok','Thailand'],['Ho Chi Minh City','Asia/Ho_Chi_Minh','Vietnam'],['Jakarta','Asia/Jakarta','Indonesia'],['Yangon','Asia/Yangon','Myanmar'],['Singapore','Asia/Singapore','Singapore'],['Kuala Lumpur','Asia/Kuala_Lumpur','Malaysia'],['Manila','Asia/Manila','Philippines'],['Hong Kong','Asia/Hong_Kong','Hong Kong'],['Shanghai','Asia/Shanghai','China'],['Beijing','Asia/Shanghai','China'],['Taipei','Asia/Taipei','Taiwan'],['Seoul','Asia/Seoul','South Korea'],['Tokyo','Asia/Tokyo','Japan'],
+ ['London','Europe/London','United Kingdom'],['Dublin','Europe/Dublin','Ireland'],['Lisbon','Europe/Lisbon','Portugal'],['Reykjavik','Atlantic/Reykjavik','Iceland'],['Paris','Europe/Paris','France'],['Berlin','Europe/Berlin','Germany'],['Madrid','Europe/Madrid','Spain'],['Rome','Europe/Rome','Italy'],['Amsterdam','Europe/Amsterdam','Netherlands'],['Zurich','Europe/Zurich','Switzerland'],['Stockholm','Europe/Stockholm','Sweden'],['Warsaw','Europe/Warsaw','Poland'],['Athens','Europe/Athens','Greece'],['Helsinki','Europe/Helsinki','Finland'],['Kyiv','Europe/Kyiv','Ukraine'],['Moscow','Europe/Moscow','Russia'],
+ ['Cairo','Africa/Cairo','Egypt'],['Casablanca','Africa/Casablanca','Morocco'],['Accra','Africa/Accra','Ghana'],['Lagos','Africa/Lagos','Nigeria'],['Nairobi','Africa/Nairobi','Kenya'],['Addis Ababa','Africa/Addis_Ababa','Ethiopia'],['Johannesburg','Africa/Johannesburg','South Africa'],
+ ['New York','America/New_York','United States'],['Chicago','America/Chicago','United States'],['Denver','America/Denver','United States'],['Phoenix','America/Phoenix','United States'],['Los Angeles','America/Los_Angeles','United States'],['San Francisco','America/Los_Angeles','United States'],['Anchorage','America/Anchorage','United States'],['Honolulu','Pacific/Honolulu','United States'],['Toronto','America/Toronto','Canada'],['Vancouver','America/Vancouver','Canada'],['Halifax','America/Halifax','Canada'],["St. John's",'America/St_Johns','Canada'],['Mexico City','America/Mexico_City','Mexico'],['Bogotá','America/Bogota','Colombia'],['Lima','America/Lima','Peru'],['Santiago','America/Santiago','Chile'],['Buenos Aires','America/Argentina/Buenos_Aires','Argentina'],['São Paulo','America/Sao_Paulo','Brazil'],
+ ['Perth','Australia/Perth','Australia'],['Adelaide','Australia/Adelaide','Australia'],['Brisbane','Australia/Brisbane','Australia'],['Sydney','Australia/Sydney','Australia'],['Melbourne','Australia/Melbourne','Australia'],['Auckland','Pacific/Auckland','New Zealand'],['Fiji','Pacific/Fiji','Fiji'],
+ ['UTC','UTC','Coordinated Universal Time']
+].filter((e)=>valid(e[1])).map((e)=>({name:e[0],tz:e[1],cc:e[2]}));
+const ALIAS={'Asia/Calcutta':'Asia/Kolkata','Asia/Saigon':'Asia/Ho_Chi_Minh','Asia/Katmandu':'Asia/Kathmandu','Asia/Rangoon':'Asia/Yangon','Europe/Kiev':'Europe/Kyiv'};
+const POPULAR=['Tokyo','Paris','Berlin','Chicago','Toronto','Hong Kong','Moscow','Johannesburg','São Paulo','Auckland','Cairo','Seoul'];
+const DEFAULT_TZ=['Europe/London','America/New_York','America/Los_Angeles','Asia/Kolkata','Asia/Dubai','Asia/Singapore','Australia/Sydney'];
+const MAX_ROWS=12;
+
+function derive(id){ const seg=id.split('/'); return {tz:id,name:seg[seg.length-1].replace(/_/g,' '),cc:seg.length>1?seg[0].replace(/_/g,' '):'Time zone'}; }
+function entryForTz(tz){ const e=CATALOG.find((c)=>c.tz===tz); return e?{tz:e.tz,name:e.name,cc:e.cc}:derive(tz); }
+
+let localTz='UTC';
+try{ localTz=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'; }catch(e){}
+localTz=ALIAS[localTz]||localTz;
+if(!valid(localTz)) localTz='UTC';
+
+const STORE='meridian:v1';
+const state={rows:[],src:localTz,date:'',time:'',live:true,h24:false};
+
+function loadSaved(){
+  try{
+    const s=JSON.parse(localStorage.getItem(STORE)||'null');
+    if(!s||!Array.isArray(s.rows)) return;
+    const rows=s.rows.filter((r)=>r&&typeof r.tz==='string'&&typeof r.name==='string'&&valid(r.tz)).slice(0,MAX_ROWS)
+      .map((r)=>({tz:r.tz,name:r.name.slice(0,60),cc:String(r.cc||'').slice(0,60)}));
+    if(rows.length){ state.rows=rows; if(rows.some((r)=>r.tz===s.src)) state.src=s.src; else state.src=rows[0].tz; }
+    if(typeof s.h24==='boolean') state.h24=s.h24;
+  }catch(e){}
+}
+function save(){
+  try{ localStorage.setItem(STORE,JSON.stringify({rows:state.rows,src:state.src,h24:state.h24})); }catch(e){}
+}
+loadSaved();
+if(!state.rows.length){
+  const seen=new Set(); const order=[localTz].concat(DEFAULT_TZ);
+  for(const tz of order){ if(seen.has(tz)||!valid(tz)) continue; seen.add(tz); state.rows.push(entryForTz(tz)); }
+  state.src=localTz;
+}
+
+const dateEl=$('#date'), timeEl=$('#time'), zoneEl=$('#zone'), liveBtn=$('#live'), liveLabel=$('#liveLabel');
+const rowsEl=$('#rows'), qEl=$('#q'), resEl=$('#results'), sumEl=$('#sum'), toastEl=$('#toast');
+const refs=new Map();
+let view={W0:0,len:864e5,inst:Date.now()};
+
+function syncNow(){
+  const p=parts(Date.now(),state.src);
+  state.date=p.y+'-'+p2(p.mo)+'-'+p2(p.d);
+  state.time=p2(p.h)+':'+p2(p.mi);
+}
+function parseDT(){
+  const a=/^(\d{4})-(\d{2})-(\d{2})$/.exec(state.date), b=/^(\d{2}):(\d{2})$/.exec(state.time);
+  if(!a||!b) return null;
+  return {y:+a[1],mo:+a[2],d:+a[3],h:+b[1],mi:+b[2]};
+}
+function setFromInstant(ms){
+  const p=parts(ms,state.src);
+  state.date=p.y+'-'+p2(p.mo)+'-'+p2(p.d);
+  state.time=p2(p.h)+':'+p2(p.mi);
+}
+function fmtTime(p){
+  if(state.h24) return {t:p2(p.h)+':'+p2(p.mi),ap:''};
+  return {t:(p.h%12||12)+':'+p2(p.mi),ap:p.h<12?'AM':'PM'};
+}
+
+function buildRows(){
+  rowsEl.textContent=''; refs.clear();
+  for(const r of state.rows){
+    const li=document.createElement('li');
+    li.className='row'; li.dataset.tz=r.tz;
+    li.innerHTML=
+      '<div class="info"><div class="name">'+esc(r.name)+'</div>'+
+        '<div class="meta"><span>'+esc(r.cc)+'</span><span class="off"></span><span class="tag dst" hidden>DST</span>'+(r.tz===localTz?'<span class="tag">Your zone</span>':'')+'</div></div>'+
+      '<div class="when"><div class="clock"><span class="t"></span><span class="ap"></span></div>'+
+        '<div class="dt"><span class="dtx"></span><span class="rel" hidden></span></div></div>'+
+      '<div class="state"><span class="pill"></span><span class="diff"></span></div>'+
+      '<div class="strip" tabindex="0" role="slider" aria-label="Day bar for '+esc(r.name)+'. Arrow keys move the time by 15 minutes." aria-valuemin="0" aria-valuemax="1440"><div class="cells"></div><div class="cursor"></div></div>'+
+      '<div class="acts"><span class="srcmark" hidden>Source</span>'+
+        '<button type="button" class="btn small" data-act="src">Use as source</button>'+
+        '<button type="button" class="btn small icon" data-act="rm" aria-label="Remove '+esc(r.name)+'"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></div>';
+    const cellsEl=li.querySelector('.cells'), cells=[];
+    for(let i=0;i<24;i++){
+      const c=document.createElement('div'); c.className='c';
+      c.innerHTML='<span class="h"></span><span class="m"></span>';
+      cellsEl.appendChild(c); cells.push(c);
+    }
+    refs.set(r.tz,{
+      li,cells,key:'',
+      t:li.querySelector('.t'),ap:li.querySelector('.ap'),dtx:li.querySelector('.dtx'),rel:li.querySelector('.rel'),
+      off:li.querySelector('.off'),dst:li.querySelector('.dst'),pill:li.querySelector('.pill'),diff:li.querySelector('.diff'),
+      strip:li.querySelector('.strip'),cursor:li.querySelector('.cursor'),
+      mark:li.querySelector('.srcmark'),srcBtn:li.querySelector('[data-act="src"]'),rmBtn:li.querySelector('[data-act="rm"]')
+    });
+    rowsEl.appendChild(li);
+  }
+  zoneEl.innerHTML=state.rows.map((r)=>'<option value="'+esc(r.tz)+'">'+esc(r.name)+', '+esc(r.cc)+'</option>').join('');
+}
+
+function paintCells(R,tz,W0,len){
+  let prev=null;
+  for(let i=0;i<24;i++){
+    const start=W0+i*len/24;
+    const ps=parts(Math.round(start/900000)*900000,tz);
+    const pm=parts(start+len/48,tz);
+    const f=pm.h+pm.mi/60;
+    const key=ps.y*10000+ps.mo*100+ps.d;
+    const roll=prev!==null&&key!==prev; prev=key;
+    const c=R.cells[i];
+    c.className='c '+((f>=22||f<6)?'night':((f<8||f>=19)?'dusk':'day'))+((f>=9&&f<18)?' work':'')+(roll?' roll':'');
+    c.firstChild.textContent=roll?ps.wd.slice(0,2):p2(ps.h);
+    c.lastChild.textContent=ps.mi?':'+p2(ps.mi):'';
+  }
+}
+
+function update(){
+  const pp=parseDT(); if(!pp) return;
+  const src=state.src;
+  const inst=zoned(pp.y,pp.mo,pp.d,pp.h,pp.mi,src);
+  const sp=parts(inst,src);
+  const W0=zoned(pp.y,pp.mo,pp.d,0,0,src);
+  const nx=new Date(Date.UTC(pp.y,pp.mo-1,pp.d+1));
+  const W1=zoned(nx.getUTCFullYear(),nx.getUTCMonth()+1,nx.getUTCDate(),0,0,src);
+  const len=W1-W0;
+  view={W0,len,inst};
+  const frac=Math.min(1,Math.max(0,(inst-W0)/len));
+  const srcOff=offMin(inst,src);
+  const winKey=src+'|'+state.date;
+  for(const r of state.rows){
+    const R=refs.get(r.tz); if(!R) continue;
+    const p=parts(inst,r.tz), tm=fmtTime(p), o=offMin(inst,r.tz);
+    R.li.classList.toggle('is-src',r.tz===src);
+    R.t.textContent=tm.t; R.ap.textContent=tm.ap;
+    R.dtx.textContent=p.wd+', '+p.d+' '+MONTHS[p.mo-1];
+    const dd=Math.round((Date.UTC(p.y,p.mo-1,p.d)-Date.UTC(sp.y,sp.mo-1,sp.d))/864e5);
+    R.rel.hidden=dd===0; R.rel.textContent=dd>0?'+'+dd+' day':'−'+Math.abs(dd)+' day';
+    R.off.textContent=fmtOff(o);
+    R.dst.hidden=!isDst(r.tz,inst);
+    const f=p.h+p.mi/60;
+    const st=(f>=9&&f<18)?['st-work','Working hours']:((f>=22||f<6)?['st-night','Night']:['st-off','Off hours']);
+    R.pill.className='pill '+st[0]; R.pill.textContent=st[1];
+    const d=o-srcOff;
+    R.diff.textContent=r.tz===src?'':(d===0?'Same as source':hm(Math.abs(d))+(d>0?' ahead':' behind'));
+    R.mark.hidden=r.tz!==src; R.srcBtn.hidden=r.tz===src;
+    R.rmBtn.disabled=state.rows.length<=1;
+    if(R.key!==winKey){ paintCells(R,r.tz,W0,len); R.key=winKey; }
+    R.cursor.style.left=(frac*100)+'%';
+    R.strip.setAttribute('aria-valuenow',String(Math.round(frac*1440)));
+    R.strip.setAttribute('aria-valuetext',tm.t+(tm.ap?' '+tm.ap:'')+' in '+r.name);
+  }
+  if(dateEl.value!==state.date) dateEl.value=state.date;
+  if(timeEl.value!==state.time) timeEl.value=state.time;
+  if(zoneEl.value!==src) zoneEl.value=src;
+  liveBtn.setAttribute('aria-pressed',String(state.live));
+  liveLabel.textContent=state.live?'Live':'Reset to now';
+  $('#f12').setAttribute('aria-pressed',String(!state.h24));
+  $('#f24').setAttribute('aria-pressed',String(state.h24));
+}
+
+function toast(msg){
+  toastEl.textContent=msg; toastEl.classList.add('show');
+  clearTimeout(toast.t); toast.t=setTimeout(()=>toastEl.classList.remove('show'),2200);
+}
+
+function setSource(tz,keepInstant){
+  if(keepInstant){ const inst=view.inst; state.src=tz; setFromInstant(inst); }
+  else state.src=tz;
+}
+
+dateEl.addEventListener('input',()=>{
+  state.live=false;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(dateEl.value)){ state.date=dateEl.value; update(); }
+  else liveBtn.setAttribute('aria-pressed','false');
+});
+timeEl.addEventListener('input',()=>{
+  state.live=false;
+  if(/^\d{2}:\d{2}$/.test(timeEl.value)){ state.time=timeEl.value; update(); }
+  else liveBtn.setAttribute('aria-pressed','false');
+});
+zoneEl.addEventListener('change',()=>{ setSource(zoneEl.value,false); if(state.live) syncNow(); update(); save(); });
+liveBtn.addEventListener('click',()=>{ state.live=true; syncNow(); update(); });
+$('#f12').addEventListener('click',()=>{ state.h24=false; update(); save(); });
+$('#f24').addEventListener('click',()=>{ state.h24=true; update(); save(); });
+
+rowsEl.addEventListener('click',(e)=>{
+  const b=e.target.closest('[data-act]'); if(!b) return;
+  const tz=b.closest('.row').dataset.tz;
+  if(b.dataset.act==='src'){ setSource(tz,true); state.live=false; update(); save(); }
+  else if(b.dataset.act==='rm') removeRow(tz);
+});
+function removeRow(tz){
+  if(state.rows.length<=1){ toast('Keep at least one city'); return; }
+  const wasSrc=tz===state.src, inst=view.inst;
+  state.rows=state.rows.filter((r)=>r.tz!==tz);
+  if(wasSrc){ state.src=state.rows[0].tz; setFromInstant(inst); state.live=false; }
+  buildRows(); update(); save();
+}
+
+let drag=null;
+function scrub(x,strip){
+  const rect=strip.querySelector('.cells').getBoundingClientRect();
+  if(!rect.width) return;
+  const frac=Math.min(1,Math.max(0,(x-rect.left)/rect.width));
+  let off=Math.round(frac*view.len/900000)*900000;
+  if(off>=view.len) off=Math.max(0,Math.floor((view.len-1)/900000)*900000);
+  setFromInstant(view.W0+off); state.live=false; update();
+}
+rowsEl.addEventListener('pointerdown',(e)=>{
+  const strip=e.target.closest('.strip'); if(!strip||e.button>0) return;
+  drag={strip}; try{ strip.setPointerCapture(e.pointerId); }catch(_){}
+  scrub(e.clientX,strip);
+});
+rowsEl.addEventListener('pointermove',(e)=>{ if(drag) scrub(e.clientX,drag.strip); });
+const endDrag=()=>{ drag=null; };
+rowsEl.addEventListener('pointerup',endDrag);
+rowsEl.addEventListener('pointercancel',endDrag);
+rowsEl.addEventListener('keydown',(e)=>{
+  if(!e.target.classList||!e.target.classList.contains('strip')) return;
+  const step=e.shiftKey?3600000:900000;
+  if(e.key==='ArrowRight'||e.key==='ArrowUp'){ e.preventDefault(); setFromInstant(view.inst+step); state.live=false; update(); }
+  else if(e.key==='ArrowLeft'||e.key==='ArrowDown'){ e.preventDefault(); setFromInstant(view.inst-step); state.live=false; update(); }
+});
+
+let EXTRA=null;
+function extra(){
+  if(EXTRA) return EXTRA;
+  EXTRA=[];
+  try{
+    if(Intl.supportedValuesOf){
+      const known=new Set(CATALOG.map((e)=>e.tz));
+      for(const id of Intl.supportedValuesOf('timeZone')){ if(known.has(id)||id.indexOf('Etc/')===0) continue; EXTRA.push(derive(id)); }
+    }
+  }catch(e){}
+  return EXTRA;
+}
+let hits=[], active=-1;
+function search(q){
+  const have=new Set(state.rows.map((r)=>r.tz));
+  q=norm(q.trim());
+  let list;
+  if(!q) list=POPULAR.map((n)=>CATALOG.find((c)=>c.name===n)).filter(Boolean);
+  else{
+    const match=(e)=>norm(e.name+' '+e.cc+' '+e.tz).indexOf(q)>-1;
+    list=CATALOG.filter(match);
+    if(list.length<8) list=list.concat(extra().filter(match));
+  }
+  return list.slice(0,8).map((e)=>({tz:e.tz,name:e.name,cc:e.cc,have:have.has(e.tz)}));
+}
+function renderResults(){
+  hits=search(qEl.value);
+  active=hits.findIndex((h)=>!h.have);
+  if(!hits.length){ resEl.innerHTML='<div class="none">No matching city. Try a country or a region such as Europe.</div>'; resEl.hidden=false; return; }
+  resEl.innerHTML=hits.map((h,i)=>
+    '<button type="button" role="option" class="res'+(i===active?' on':'')+'" data-i="'+i+'"'+(h.have?' disabled':'')+'>'+
+    '<span>'+esc(h.name)+'</span><span class="rc">'+esc(h.cc)+'</span>'+
+    '<span class="ro">'+(h.have?'Already shown':fmtOff(offMin(view.inst,h.tz)))+'</span></button>').join('');
+  resEl.hidden=false;
+}
+function addCity(h){
+  if(state.rows.length>=MAX_ROWS){ toast('Twelve cities is the limit. Remove one first.'); return; }
+  if(state.rows.some((r)=>r.tz===h.tz)) return;
+  state.rows.push({tz:h.tz,name:h.name,cc:h.cc});
+  qEl.value=''; resEl.hidden=true;
+  buildRows(); update(); save(); toast('Added '+h.name);
+}
+qEl.addEventListener('focus',renderResults);
+qEl.addEventListener('input',renderResults);
+qEl.addEventListener('keydown',(e)=>{
+  if(e.key==='Escape'){ resEl.hidden=true; return; }
+  if(resEl.hidden||!hits.length) return;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault();
+    const dir=e.key==='ArrowDown'?1:-1; let i=active;
+    for(let n=0;n<hits.length;n++){ i=(i+dir+hits.length)%hits.length; if(!hits[i].have) break; }
+    active=i;
+    resEl.querySelectorAll('.res').forEach((el,k)=>el.classList.toggle('on',k===active));
+  }else if(e.key==='Enter'){
+    e.preventDefault();
+    if(active>-1&&hits[active]&&!hits[active].have) addCity(hits[active]);
+  }
+});
+resEl.addEventListener('click',(e)=>{
+  const b=e.target.closest('.res'); if(!b||b.disabled) return;
+  addCity(hits[+b.dataset.i]);
+});
+document.addEventListener('pointerdown',(e)=>{ if(!e.target.closest('.addbox')) resEl.hidden=true; });
+
+function summary(){
+  return state.rows.map((r)=>{
+    const p=parts(view.inst,r.tz), t=fmtTime(p);
+    return r.name+': '+t.t+(t.ap?' '+t.ap:'')+', '+p.wd+' '+p.d+' '+MONTHS[p.mo-1]+' ('+fmtOff(offMin(view.inst,r.tz))+')';
+  }).join('\n');
+}
+$('#copy').addEventListener('click',async()=>{
+  const text=summary();
+  try{
+    await navigator.clipboard.writeText(text);
+    sumEl.hidden=true; toast('Copied to clipboard');
+  }catch(e){
+    sumEl.hidden=false; sumEl.value=text; sumEl.focus(); sumEl.select();
+    toast('Select the text to copy it');
+  }
+});
+
+setInterval(()=>{ if(state.live&&!document.hidden){ syncNow(); update(); } },5000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&state.live){ syncNow(); update(); } });
+
+syncNow(); buildRows(); update();
+})();
+</script>
+
+</body>
+</html>
